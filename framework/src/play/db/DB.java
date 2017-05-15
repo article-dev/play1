@@ -15,7 +15,10 @@ import javax.sql.DataSource;
 import javax.sql.RowSet;
 import javax.sql.rowset.CachedRowSet;
 
+import org.hibernate.Session;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.internal.SessionImpl;
+import org.hibernate.jpa.HibernateEntityManager;
 
 import com.sun.rowset.CachedRowSetImpl;
 
@@ -176,8 +179,9 @@ public class DB {
      */
     public static Connection getConnection(String name) {
         try {
+        	
             if (JPA.isEnabled()) {
-                return ((SessionImpl) ((org.hibernate.ejb.EntityManagerImpl) JPA.em(name)).getSession()).connection();
+                return JPA.em(name).unwrap(SessionImplementor.class).connection();
             }
 
             Connection localConnection = getLocalConnection(name);

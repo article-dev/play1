@@ -10,7 +10,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 
 import org.hibernate.HibernateException;
-import org.hibernate.engine.spi.SessionImplementor;
+import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.type.StringType;
 import org.hibernate.usertype.UserType;
 
@@ -112,21 +112,22 @@ public class Blob implements BinaryField, UserType {
     public int hashCode(Object o) throws HibernateException {
         return o.hashCode();
     }
-
+    
     @Override
-    public Object nullSafeGet(ResultSet resultSet, String[] names, SessionImplementor sessionImplementor, Object o) throws HibernateException, SQLException {
+    public Object nullSafeGet(ResultSet resultSet, String[] names, SharedSessionContractImplementor sessionImplementor, Object o) throws HibernateException, SQLException {
        String val = (String) StringType.INSTANCE.nullSafeGet(resultSet, names[0], sessionImplementor, o);
         return new Blob(val);
     }
 
     @Override
-    public void nullSafeSet(PreparedStatement ps, Object o, int i, SessionImplementor sessionImplementor) throws HibernateException, SQLException {
+    public void nullSafeSet(PreparedStatement ps, Object o, int i, SharedSessionContractImplementor sessionImplementor) throws HibernateException, SQLException {
          if(o != null) {
             ps.setString(i, encode((Blob) o));
         } else {
             ps.setNull(i, Types.VARCHAR);
         }
     }
+
 
     private String encode(Blob o) {
         return o.UUID != null ? o.UUID + "|" + o.type : null;

@@ -9,8 +9,8 @@ public class CacheTest extends UnitTest {
     
     @Before
     public void setup() {
-        Fixtures.deleteAll();
-        Fixtures.load("users.yml");
+        Fixtures.deleteDatabase();
+        Fixtures.loadModels("users.yml");
         Cache.clear();
     }
 
