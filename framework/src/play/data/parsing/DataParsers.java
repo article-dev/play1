@@ -16,8 +16,9 @@ public class DataParsers {
     }
 
     /**
-     * 
-     * 
+     * Set a DataParser for a content type
+	 * @param contentType The content type this dataParser handles
+	 * @param dataParser The DataParser implementation
      */
     public static void setDataParser(String contentType, DataParser dataParser) {
         parsers.put(contentType, dataParser);
