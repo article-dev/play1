@@ -15,6 +15,14 @@ public class DataParsers {
         parsers.put("application/json", new TextParser());
     }
 
+    /**
+     * 
+     * 
+     */
+    public static void setDataParser(String contentType, DataParser dataParser) {
+        parsers.put(contentType, dataParser);
+    }
+
     public static DataParser forContentType(String contentType) {
         DataParser dataParser = parsers.get(contentType);
         if (dataParser != null) {
