@@ -532,7 +532,7 @@ public class Evolutions extends PlayPlugin {
                         String error = resultSet.getString("last_problem");
                         throw new InconsistentDatabase(dbName, script, error, revision, moduleRoot.getKey());
                     }
-                } catch (SQLException e) {
+                } catch (Exception e) {
                     throw new UnexpectedException(e);
                 } finally {
                     EvolutionQuery.closeResultSet(resultSet);
