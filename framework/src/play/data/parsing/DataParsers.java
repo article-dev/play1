@@ -14,6 +14,16 @@ public class DataParsers {
         parsers.put("application/xml", new TextParser());
         parsers.put("application/json", new TextParser());
     }
+    
+   /**
+     * Set a DataParser for a content type
+     * @param contentType The content type this dataParser handles
+     * @param dataParser The DataParser implementation
+     */
+    public static void setDataParser(String contentType, DataParser dataParser) {
+        parsers.put(contentType, dataParser);
+    }
+
 
     public static DataParser forContentType(String contentType) {
         DataParser dataParser = parsers.get(contentType);
