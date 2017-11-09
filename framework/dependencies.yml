@@ -47,7 +47,7 @@ require:    &allDependencies
     - org.bouncycastle -> bcpkix-jdk15on 1.57
     - org.codehaus.groovy -> groovy-all 2.4.11
     - org.eclipse.jdt.core 3.12.3
-    - org.hibernate -> hibernate-core 5.2.10.patched
+    - org.hibernate -> hibernate-core 5.2.12.patched
     - org.hibernate.common -> hibernate-commons-annotations 5.0.1.Final
     - org.hibernate -> hibernate-entitymanager 5.2.10.Final
     - org.hibernate -> hibernate-validator 5.4.1.Final
