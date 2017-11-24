@@ -12,7 +12,7 @@ import javax.persistence.MappedSuperclass;
 public class Model extends GenericModel {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(stratagy = GenerationType.IDENTITY)
     public Long id;
 
     public Long getId() {
