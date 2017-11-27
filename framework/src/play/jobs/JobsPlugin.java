@@ -31,6 +31,14 @@ public class JobsPlugin extends PlayPlugin {
     public static ScheduledThreadPoolExecutor executor;
     public static List<Job> scheduledJobs = new ArrayList<>();
     private static final ThreadLocal<List<Callable<?>>> afterInvocationActions = new ThreadLocal<>();
+    private static boolean isOnEnabled = true;
+    private static boolean isEveryEnabled = true;
+
+    @Override
+    public void onConfigurationRead() {
+        isOnEnabled = Play.configuration.getProperty("play.jobs.on", "enabled").equals("enabled");
+        isEveryEnabled = Play.configuration.getProperty("play.jobs.every", "enabled").equals("enabled");
+    }
 
     @Override
     public String getStatus() {
@@ -146,7 +154,7 @@ public class JobsPlugin extends PlayPlugin {
             }
 
             // @On
-            if (clazz.isAnnotationPresent(On.class)) {
+            if (isOnEnabled && clazz.isAnnotationPresent(On.class)) {
                 try {
                     Job<?> job = createJob(clazz);
                     scheduleForCRON(job);
@@ -155,7 +163,7 @@ public class JobsPlugin extends PlayPlugin {
                 }
             }
             // @Every
-            if (clazz.isAnnotationPresent(Every.class)) {
+            if (isEveryEnabled && clazz.isAnnotationPresent(Every.class)) {
                 try {
                     Job job = createJob(clazz);
                     String value = job.getClass().getAnnotation(Every.class).value();
