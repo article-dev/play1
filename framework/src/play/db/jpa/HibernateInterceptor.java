@@ -7,20 +7,27 @@ import org.hibernate.resource.transaction.spi.TransactionStatus;
 import org.hibernate.type.Type;
 
 import play.Play;
+import play.db.Operation;
+import play.db.OperationType;
 import play.db.PostTransaction;
 
 import java.io.Serializable;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class HibernateInterceptor extends EmptyInterceptor {
 
     public HibernateInterceptor() {
-
+        operations = new ThreadLocal<LinkedList<Operation>>();
+        operations.set(new LinkedList<>());
     }
 
     @Override
@@ -84,59 +91,89 @@ public class HibernateInterceptor extends EmptyInterceptor {
     }
 
     protected final ThreadLocal<Object> entityLocal = new ThreadLocal<>();
-    protected final ThreadLocal<LinkedList<Pair>> entities = new ThreadLocal<LinkedList<Pair>>();
+    protected final ThreadLocal<LinkedList<Operation>> operations;
 
     @Override
     public boolean onSave(Object entity, Serializable id, Object[] state, String[] propertyNames, Type[] types) {
         entityLocal.set(entity);
-        putEntity(entities, entity, id);
+        Operation operation = new Operation();
+        operation.operationType = OperationType.INSERT;
+        operation.id = (Long) id;
+        operation.clazz = entity.getClass();
+        operation.currentState = entity;
+        operation.previousState = null;
+        operations.get().add(operation);
         return super.onSave(entity, id, state, propertyNames, types);
     }
 
     @Override
     public boolean onFlushDirty(Object entity, Serializable id, Object[] currentState, Object[] previousState,
             String[] propertyNames, Type[] types) {
-        putEntity(entities, entity, id);
+        Operation operation = new Operation();
+        operation.operationType = OperationType.UPDATE;
+        operation.id = (Long) id;
+        operation.clazz = entity.getClass();
+        operation.currentState = entity;
+
+        try {
+            Object previousEntity = Play.classloader.loadApplicationClass(operation.clazz.getName()).newInstance();
+            for (int i = 0; i < previousState.length; i++) {
+                Field field = previousEntity.getClass().getDeclaredField(propertyNames[i]);
+                field.setAccessible(true);
+                field.set(previousEntity, previousState[i]);
+                operation.previousState = previousEntity;
+            }
+        } catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException
+                | InstantiationException e) {
+            e.printStackTrace();
+        }
+
+        operations.get().add(operation);
         return super.onFlushDirty(entity, id, currentState, previousState, propertyNames, types);
     }
 
     @Override
     public void onDelete(Object entity, Serializable id, Object[] state, String[] propertyNames, Type[] types) {
-        putEntity(entities, entity, id);
+        Operation operation = new Operation();
+        operation.operationType = OperationType.DELETE;
+        operation.id = (Long) id;
+        operation.clazz = entity.getClass();
+        operation.currentState = null;
+        operation.previousState = entity;
+        operations.get().add(operation);
         super.onDelete(entity, id, state, propertyNames, types);
-    }
-
-    static class Pair {
-        String clazz;
-        Long id;
-    }
-
-    private static void putEntity(ThreadLocal<LinkedList<Pair>> entities, Object object, Serializable id) {
-        if (entities.get() == null) {
-            entities.set(new LinkedList<>());
-        }
-        Pair pair = new Pair();
-        pair.clazz = object.getClass().getName();
-        pair.id = (Long) id;
-        entities.get().push(pair);
     }
 
     @Override
     public void afterTransactionCompletion(org.hibernate.Transaction tx) {
-        if (tx.getStatus() == TransactionStatus.COMMITTED && entities.get() != null && entities.get().size() > 0) {
-            entities.get().stream()
-                    .collect(Collectors.groupingBy(x -> x.clazz,
-                            Collectors.mapping(x -> x.id, Collectors.toCollection(LinkedList::new))))
-                    .entrySet().stream().forEach(new Consumer<Map.Entry<String, LinkedList<Long>>>() {
-                        public void accept(Entry<String, LinkedList<Long>> t) {
+        if (tx.getStatus() == TransactionStatus.ROLLED_BACK && operations.get() != null
+                && operations.get().size() > 0) {
+            operations.get().stream()
+                    .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
+                    .stream().forEach(new Consumer<Map.Entry<Class, LinkedList<Operation>>>() {
+                        // maybe should cache annotated methods to avoid checking every time.
+                        // not sure how play's hot code deploy will act if cached in a static collection
+                        public void accept(Entry<Class, LinkedList<Operation>> t) {
                             try {
-                                Class clazz = Play.classloader.loadApplicationClass(t.getKey().toString());
+                                Class clazz = Play.classloader.loadApplicationClass(t.getKey().getName());
                                 if (clazz != null) {
                                     for (Method method : clazz.getMethods()) {
-                                        if (method.isAnnotationPresent(PostTransaction.class)) {
-                                            if (method.getParameterTypes() != null
-                                                    && method.getParameterTypes().length == 1)
-                                                method.invoke(null, t.getValue());
+                                        if (method.isAnnotationPresent(PostTransaction.class)
+                                                && method.getParameterTypes() != null
+                                                && method.getParameterTypes().length == 1) {
+                                            for (PostTransaction postTransaction : method
+                                                    .getAnnotationsByType(PostTransaction.class)) {
+                                                if (postTransaction.operationType() == null
+                                                        || postTransaction.operationType().length == 0) {
+                                                    return;
+                                                }
+                                                List<OperationType> operationTypes = Arrays
+                                                        .asList(postTransaction.operationType());
+                                                List<Operation> operations = t.getValue().stream()
+                                                        .filter(x -> operationTypes.contains(x.operationType))
+                                                        .collect(Collectors.toList());
+                                                method.invoke(null, operations);
+                                            }
                                         }
                                     }
                                 }
@@ -148,8 +185,8 @@ public class HibernateInterceptor extends EmptyInterceptor {
                     });
             ;
         }
-        if (entities.get() != null) {
-            entities.get().clear();
+        if (operations.get() != null) {
+            operations.get().clear();
         }
         entityLocal.remove();
     }
