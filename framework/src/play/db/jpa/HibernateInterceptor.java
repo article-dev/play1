@@ -164,7 +164,7 @@ public class HibernateInterceptor extends EmptyInterceptor {
 
     @Override
     public void afterTransactionCompletion(org.hibernate.Transaction tx) {
-        if (tx.getStatus() == TransactionStatus.ROLLED_BACK && operations.get() != null
+        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null
                 && operations.get().size() > 0) {
             operations.get().stream()
                     .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
