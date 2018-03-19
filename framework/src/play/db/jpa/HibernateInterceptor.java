@@ -14,6 +14,7 @@ import play.db.PostTransaction;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -38,7 +39,8 @@ public class HibernateInterceptor extends EmptyInterceptor {
             List<Method> methods = new ArrayList<>();
             for (Method method : clazz.getMethods()) {
                 if (method.isAnnotationPresent(PostTransaction.class) && method.getParameterCount() == 1
-                        && Iterable.class.isAssignableFrom(method.getParameterTypes()[0])) {
+                        && Iterable.class.isAssignableFrom(method.getParameterTypes()[0])
+                        && Modifier.isStatic(method.getModifiers())) {
                     methods.add(method);
                 }
             }
@@ -164,8 +166,7 @@ public class HibernateInterceptor extends EmptyInterceptor {
 
     @Override
     public void afterTransactionCompletion(org.hibernate.Transaction tx) {
-        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null
-                && operations.get().size() > 0) {
+        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null && operations.get().size() > 0) {
             operations.get().stream()
                     .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
                     .stream().forEach(new Consumer<Map.Entry<Class, LinkedList<Operation>>>() {
