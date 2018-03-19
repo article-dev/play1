@@ -4,9 +4,11 @@ import org.hibernate.CallbackException;
 import org.hibernate.EmptyInterceptor;
 import org.hibernate.collection.spi.PersistentCollection;
 import org.hibernate.resource.transaction.spi.TransactionStatus;
+import org.hibernate.Transaction;
 import org.hibernate.type.Type;
 
 import play.Play;
+import play.db.AfterTransactionBegin;
 import play.db.Operation;
 import play.db.OperationType;
 import play.db.PostTransaction;
@@ -18,6 +20,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +32,7 @@ import java.util.stream.Collectors;
 public class HibernateInterceptor extends EmptyInterceptor {
 
     private static Map<Class, List<Method>> postTransactionMap = new HashMap<>();
+    private static List<Method> afterTransactionBeginMethods = new ArrayList<>();
 
     public HibernateInterceptor() {
         operations = new ThreadLocal<LinkedList<Operation>>();
@@ -36,16 +40,20 @@ public class HibernateInterceptor extends EmptyInterceptor {
 
         List<Class> allClasses = Play.classloader.getAllClasses();
         for (Class clazz : allClasses) {
-            List<Method> methods = new ArrayList<>();
+            List<Method> postTransactionMethods = new ArrayList<>();
             for (Method method : clazz.getMethods()) {
                 if (method.isAnnotationPresent(PostTransaction.class) && method.getParameterCount() == 1
                         && Iterable.class.isAssignableFrom(method.getParameterTypes()[0])
                         && Modifier.isStatic(method.getModifiers())) {
-                    methods.add(method);
+                    postTransactionMethods.add(method);
+                }
+                if (method.isAnnotationPresent(AfterTransactionBegin.class) && method.getParameterCount() == 0
+                        && Modifier.isStatic(method.getModifiers()) && Modifier.isFinal(method.getModifiers())) {
+                    afterTransactionBeginMethods.add(method);
                 }
             }
-            if (methods.size() > 0) {
-                postTransactionMap.put(clazz, methods);
+            if (postTransactionMethods.size() > 0) {
+                postTransactionMap.put(clazz, postTransactionMethods);
             }
         }
     }
@@ -138,8 +146,7 @@ public class HibernateInterceptor extends EmptyInterceptor {
         try {
             Object previousEntity = Play.classloader.loadApplicationClass(operation.clazz.getName()).newInstance();
             for (int i = 0; i < previousState.length; i++) {
-                Field field = previousEntity.getClass().getDeclaredField(propertyNames[i]);
-                field.setAccessible(true);
+                Field field = previousEntity.getClass().getField(propertyNames[i]);
                 field.set(previousEntity, previousState[i]);
                 operation.previousState = previousEntity;
             }
@@ -165,7 +172,7 @@ public class HibernateInterceptor extends EmptyInterceptor {
     }
 
     @Override
-    public void afterTransactionCompletion(org.hibernate.Transaction tx) {
+    public void afterTransactionCompletion(Transaction tx) {
         if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null && operations.get().size() > 0) {
             operations.get().stream()
                     .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
@@ -198,5 +205,17 @@ public class HibernateInterceptor extends EmptyInterceptor {
             operations.get().clear();
         }
         entityLocal.remove();
+    }
+
+    @Override
+    public void afterTransactionBegin(Transaction tx) {
+        for (Method method : afterTransactionBeginMethods) {
+            try {
+                method.invoke(null);
+            } catch (Exception e) {
+                e.printStackTrace();
+                System.out.println("CALLING AFTER TRANSACTION BEGIN METHOD FAILED: " + e.getMessage());
+            }
+        }
     }
 }
