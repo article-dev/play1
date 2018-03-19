@@ -14,7 +14,9 @@ import play.db.PostTransaction;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -25,9 +27,25 @@ import java.util.stream.Collectors;
 
 public class HibernateInterceptor extends EmptyInterceptor {
 
+    private static Map<Class, List<Method>> postTransactionMap = new HashMap<>();
+
     public HibernateInterceptor() {
         operations = new ThreadLocal<LinkedList<Operation>>();
         operations.set(new LinkedList<>());
+
+        List<Class> allClasses = Play.classloader.getAllClasses();
+        for (Class clazz : allClasses) {
+            List<Method> methods = new ArrayList<>();
+            for (Method method : clazz.getMethods()) {
+                if (method.isAnnotationPresent(PostTransaction.class) && method.getParameterCount() == 1
+                        && Iterable.class.isAssignableFrom(method.getParameterTypes()[0])) {
+                    methods.add(method);
+                }
+            }
+            if (methods.size() > 0) {
+                postTransactionMap.put(clazz, methods);
+            }
+        }
     }
 
     @Override
@@ -151,29 +169,19 @@ public class HibernateInterceptor extends EmptyInterceptor {
             operations.get().stream()
                     .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
                     .stream().forEach(new Consumer<Map.Entry<Class, LinkedList<Operation>>>() {
-                        // maybe should cache annotated methods to avoid checking every time.
-                        // not sure how play's hot code deploy will act if cached in a static collection
                         public void accept(Entry<Class, LinkedList<Operation>> t) {
                             try {
-                                Class clazz = Play.classloader.loadApplicationClass(t.getKey().getName());
-                                if (clazz != null) {
-                                    for (Method method : clazz.getMethods()) {
-                                        if (method.isAnnotationPresent(PostTransaction.class)
-                                                && method.getParameterTypes() != null
-                                                && method.getParameterTypes().length == 1) {
-                                            for (PostTransaction postTransaction : method
-                                                    .getAnnotationsByType(PostTransaction.class)) {
-                                                if (postTransaction.operationType() == null
-                                                        || postTransaction.operationType().length == 0) {
-                                                    return;
-                                                }
-                                                List<OperationType> operationTypes = Arrays
-                                                        .asList(postTransaction.operationType());
-                                                List<Operation> operations = t.getValue().stream()
-                                                        .filter(x -> operationTypes.contains(x.operationType))
-                                                        .collect(Collectors.toList());
-                                                method.invoke(null, operations);
+                                if (postTransactionMap.containsKey(t.getKey())) {
+                                    for (Method method : postTransactionMap.get(t.getKey())) {
+                                        for (PostTransaction pt : method.getAnnotationsByType(PostTransaction.class)) {
+                                            if (pt.operationType() == null || pt.operationType().length == 0) {
+                                                return;
                                             }
+                                            List<OperationType> operationTypes = Arrays.asList(pt.operationType());
+                                            List<Operation> operations = t.getValue().stream()
+                                                    .filter(x -> operationTypes.contains(x.operationType))
+                                                    .collect(Collectors.toList());
+                                            method.invoke(null, operations);
                                         }
                                     }
                                 }
