@@ -32,12 +32,10 @@ import java.util.stream.Collectors;
 public class HibernateInterceptor extends EmptyInterceptor {
 
     private static Map<Class, List<Method>> postTransactionMap = new HashMap<>();
+    private static List<Method> globalPostTransactionMethods = new ArrayList<>();
     private static List<Method> afterTransactionBeginMethods = new ArrayList<>();
 
     public HibernateInterceptor() {
-        operations = new ThreadLocal<LinkedList<Operation>>();
-        operations.set(new LinkedList<>());
-
         List<Class> allClasses = Play.classloader.getAllClasses();
         for (Class clazz : allClasses) {
             List<Method> postTransactionMethods = new ArrayList<>();
@@ -46,7 +44,13 @@ public class HibernateInterceptor extends EmptyInterceptor {
                 if (method.isAnnotationPresent(PostTransaction.class) && method.getParameterCount() == 1
                         && Iterable.class.isAssignableFrom(method.getParameterTypes()[0])
                         && Modifier.isStatic(method.getModifiers())) {
-                    postTransactionMethods.add(method);
+                    for (PostTransaction pt : method.getAnnotationsByType(PostTransaction.class)) {
+                        if (pt.global()) {
+                            globalPostTransactionMethods.add(method);
+                        } else {
+                            postTransactionMethods.add(method);
+                        }
+                    }
                 }
                 if (method.isAnnotationPresent(AfterTransactionBegin.class) && method.getParameterCount() == 0
                         && Modifier.isStatic(method.getModifiers()) && Modifier.isFinal(method.getModifiers())) {
@@ -120,88 +124,120 @@ public class HibernateInterceptor extends EmptyInterceptor {
     }
 
     protected final ThreadLocal<Object> entityLocal = new ThreadLocal<>();
-    protected final ThreadLocal<LinkedList<Operation>> operations;
+    protected final ThreadLocal<LinkedList<Operation>> operations = new ThreadLocal<LinkedList<Operation>>();;
 
     @Override
     public boolean onSave(Object entity, Serializable id, Object[] state, String[] propertyNames, Type[] types) {
         entityLocal.set(entity);
-        Operation operation = new Operation();
-        operation.operationType = OperationType.INSERT;
-        operation.id = (Long) id;
-        operation.clazz = entity.getClass();
-        operation.currentState = entity;
-        operation.previousState = null;
-        operations.get().add(operation);
+        if (operations != null) {
+            Operation operation = new Operation();
+            operation.operationType = OperationType.INSERT;
+            operation.id = (Long) id;
+            operation.clazz = entity.getClass();
+            operation.currentState = entity;
+            operation.previousState = null;
+            this.addOperation(operation);
+        }
         return super.onSave(entity, id, state, propertyNames, types);
     }
 
     @Override
     public boolean onFlushDirty(Object entity, Serializable id, Object[] currentState, Object[] previousState,
             String[] propertyNames, Type[] types) {
-        Operation operation = new Operation();
-        operation.operationType = OperationType.UPDATE;
-        operation.id = (Long) id;
-        operation.clazz = entity.getClass();
-        operation.currentState = entity;
+        if (operations != null) {
+            Operation operation = new Operation();
+            operation.operationType = OperationType.UPDATE;
+            operation.id = (Long) id;
+            operation.clazz = entity.getClass();
+            operation.currentState = entity;
 
-        try {
-            Object previousEntity = Play.classloader.loadApplicationClass(operation.clazz.getName()).newInstance();
-            for (int i = 0; i < previousState.length; i++) {
-                Field field = previousEntity.getClass().getField(propertyNames[i]);
-                field.set(previousEntity, previousState[i]);
-                operation.previousState = previousEntity;
+            try {
+                Object previousEntity = Play.classloader.loadApplicationClass(operation.clazz.getName()).newInstance();
+                for (int i = 0; i < previousState.length; i++) {
+                    Field field = previousEntity.getClass().getField(propertyNames[i]);
+                    field.set(previousEntity, previousState[i]);
+                    operation.previousState = previousEntity;
+                }
+            } catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException
+                    | InstantiationException e) {
+                e.printStackTrace();
             }
-        } catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException
-                | InstantiationException e) {
-            e.printStackTrace();
-        }
 
-        operations.get().add(operation);
+            this.addOperation(operation);
+        }
         return super.onFlushDirty(entity, id, currentState, previousState, propertyNames, types);
     }
 
     @Override
     public void onDelete(Object entity, Serializable id, Object[] state, String[] propertyNames, Type[] types) {
-        Operation operation = new Operation();
-        operation.operationType = OperationType.DELETE;
-        operation.id = (Long) id;
-        operation.clazz = entity.getClass();
-        operation.currentState = null;
-        operation.previousState = entity;
-        operations.get().add(operation);
+        if (operations != null) {
+            Operation operation = new Operation();
+            operation.operationType = OperationType.DELETE;
+            operation.id = (Long) id;
+            operation.clazz = entity.getClass();
+            operation.currentState = null;
+            operation.previousState = entity;
+            this.addOperation(operation);
+        }
         super.onDelete(entity, id, state, propertyNames, types);
+    }
+
+    public void addOperation(Operation operation) {
+        if (this.operations.get() == null) {
+            this.operations.set(new LinkedList<>());
+        }
+        this.operations.get().add(operation);
     }
 
     @Override
     public void afterTransactionCompletion(Transaction tx) {
-        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null && operations.get().size() > 0
-                && postTransactionMap.size() > 0) {
-            operations.get().stream()
-                    .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
-                    .stream().forEach(new Consumer<Map.Entry<Class, LinkedList<Operation>>>() {
-                        public void accept(Entry<Class, LinkedList<Operation>> t) {
-                            try {
-                                if (postTransactionMap.containsKey(t.getKey())) {
-                                    for (Method method : postTransactionMap.get(t.getKey())) {
-                                        for (PostTransaction pt : method.getAnnotationsByType(PostTransaction.class)) {
-                                            if (pt.operationType() == null || pt.operationType().length == 0) {
-                                                return;
+        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null && operations.get().size() > 0) {
+            if (postTransactionMap.size() > 0) {
+                operations.get().stream()
+                        .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new)))
+                        .entrySet().stream().forEach(new Consumer<Map.Entry<Class, LinkedList<Operation>>>() {
+                            public void accept(Entry<Class, LinkedList<Operation>> t) {
+                                try {
+                                    if (postTransactionMap.containsKey(t.getKey())) {
+                                        for (Method method : postTransactionMap.get(t.getKey())) {
+                                            for (PostTransaction pt : method
+                                                    .getAnnotationsByType(PostTransaction.class)) {
+                                                if (pt.operationType() == null || pt.operationType().length == 0) {
+                                                    return;
+                                                }
+                                                List<OperationType> operationTypes = Arrays.asList(pt.operationType());
+                                                List<Operation> operations = t.getValue().stream()
+                                                        .filter(x -> operationTypes.contains(x.operationType))
+                                                        .collect(Collectors.toList());
+                                                method.invoke(null, operations);
                                             }
-                                            List<OperationType> operationTypes = Arrays.asList(pt.operationType());
-                                            List<Operation> operations = t.getValue().stream()
-                                                    .filter(x -> operationTypes.contains(x.operationType))
-                                                    .collect(Collectors.toList());
-                                            method.invoke(null, operations);
                                         }
                                     }
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                    System.out.println("CALLING POST TRANSACTION METHOD FAILED: " + e.getMessage());
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                System.out.println("CALLING POST TRANSACTION METHOD FAILED: " + e.getMessage());
                             }
+                        });
+            }
+            if (globalPostTransactionMethods.size() > 0) {
+                for (Method method : globalPostTransactionMethods) {
+                    try {
+                        for (PostTransaction pt : method.getAnnotationsByType(PostTransaction.class)) {
+                            if (pt.operationType() == null || pt.operationType().length == 0) {
+                                return;
+                            }
+                            List<OperationType> operationTypes = Arrays.asList(pt.operationType());
+                            List<Operation> operationsList = operations.get().stream()
+                                    .filter(x -> operationTypes.contains(x.operationType)).collect(Collectors.toList());
+                            method.invoke(null, operationsList);
                         }
-                    });
-            ;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        System.out.println("CALLING GLOBAL POST TRANSACTION METHOD FAILED: " + e.getMessage());
+                    }
+                }
+            }
         }
         if (operations.get() != null) {
             operations.get().clear();

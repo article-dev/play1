@@ -1,6 +1,7 @@
 package play.db;
 
 import java.lang.annotation.ElementType;
+import java.lang.annotation.Repeatable;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
@@ -17,5 +18,7 @@ import java.lang.annotation.Target;
 public @interface PostTransaction {
 
     public OperationType[] operationType() default { OperationType.INSERT, OperationType.UPDATE, OperationType.DELETE };
+
+    public boolean global() default false;
 
 }
