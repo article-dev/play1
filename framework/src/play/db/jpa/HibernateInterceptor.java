@@ -41,7 +41,8 @@ public class HibernateInterceptor extends EmptyInterceptor {
         List<Class> allClasses = Play.classloader.getAllClasses();
         for (Class clazz : allClasses) {
             List<Method> postTransactionMethods = new ArrayList<>();
-            for (Method method : clazz.getMethods()) {
+            // ignore superclass methods
+            for (Method method : clazz.getDeclaredMethods()) {
                 if (method.isAnnotationPresent(PostTransaction.class) && method.getParameterCount() == 1
                         && Iterable.class.isAssignableFrom(method.getParameterTypes()[0])
                         && Modifier.isStatic(method.getModifiers())) {
@@ -173,7 +174,8 @@ public class HibernateInterceptor extends EmptyInterceptor {
 
     @Override
     public void afterTransactionCompletion(Transaction tx) {
-        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null && operations.get().size() > 0) {
+        if (tx.getStatus() == TransactionStatus.COMMITTED && operations.get() != null && operations.get().size() > 0
+                && postTransactionMap.size() > 0) {
             operations.get().stream()
                     .collect(Collectors.groupingBy(x -> x.clazz, Collectors.toCollection(LinkedList::new))).entrySet()
                     .stream().forEach(new Consumer<Map.Entry<Class, LinkedList<Operation>>>() {
