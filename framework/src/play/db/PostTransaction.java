@@ -9,7 +9,9 @@ import java.lang.annotation.Target;
 /**
  * Indicates a STATIC method on a model entity class to be called after a transaction finishes.
  * Will only be triggered when this certain entity is created/updated/deleted in this transaction.
- * The annotated static method needs to have one parameter, a collection of {@link Operation}
+ * The annotated static method needs to have one parameter, a collection of {@link Operation}.
+ * 
+ * Limitation: Cannot get collections in an entity directly. Another database query is required for collections.
  * 
  * @author han
  */
