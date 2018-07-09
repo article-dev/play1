@@ -291,12 +291,14 @@ public class GroovyTemplate extends BaseTemplate {
             }
             throwException(e);
         } catch (PlayException e) {
+            Logger.error(e, "Trying to think of a keyword to grep1");
             throw (PlayException) cleanStackTrace(e);
         } catch (DoBodyException e) {
             if (Play.mode == Mode.DEV) {
                 compiledTemplate = null;
                 BytecodeCache.deleteBytecode(name);
             }
+            Logger.error(e, "Trying to think of a keyword to grep2");
             Throwable ex = e.getCause();
             throwException(ex);
         } catch (Throwable e) {
@@ -304,6 +306,7 @@ public class GroovyTemplate extends BaseTemplate {
                 compiledTemplate = null;
                 BytecodeCache.deleteBytecode(name);
             }
+            Logger.error(e, "Trying to think of a keyword to grep3");
             throwException(e);
         } finally {
             if (monitor != null) {
