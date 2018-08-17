@@ -155,7 +155,11 @@ public class ActionInvoker {
                         cacheKey = cacheFor.generator().newInstance().generate(request);
                     }
                     if(cacheKey != null && !"".equals(cacheKey)) {
-                    	actionResult = (Result) Cache.get(cacheKey);
+						try {
+							actionResult = (Result) Cache.get(cacheKey);
+						} catch(Exception e) {
+							Logger.error("Play - ActionInvoker - failed to get cached response because of Cache error.");
+						}
                     }
                 }
 
@@ -167,7 +171,11 @@ public class ActionInvoker {
                 actionResult = result;
                 // Cache it if needed
                 if (cacheKey != null && !"".equals(cacheKey)) {
-                    Cache.set(cacheKey, actionResult, actionMethod.getAnnotation(CacheFor.class).value());
+					try {
+						Cache.set(cacheKey, actionResult, actionMethod.getAnnotation(CacheFor.class).value());
+					} catch(Exception e) {
+						Logger.error("Play - ActionInvoker - failed to set cached response because of Cache error.");
+					}
                 }
             } catch (JavaExecutionException e) {
                 invokeControllerCatchMethods(e.getCause());
